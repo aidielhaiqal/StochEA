@@ -1,0 +1,103 @@
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+int OnInit()
+  {
+   // Initialization of inputs
+   input int StochK = 9;
+   input int StochD = 4;
+   input int StochSlowing = 3;
+   input int LevelLow = 10;
+   input int LevelHigh = 90;
+   input int TakeProfit = 10;
+   input int TrailingStop = 20;
+   input ENUM_TIMEFRAMES TimeFrame = PERIOD_M1;
+
+   // Initialization of Stochastic Oscillator
+   int StochHandle = iStochastic(_Symbol, TimeFrame, StochK, StochD, StochSlowing, MODE_SMA, 0);
+
+   if(StochHandle == INVALID_HANDLE)
+     {
+      Print("Error creating Stochastic handle");
+      return(INIT_FAILED);
+     }
+
+   return(INIT_SUCCEEDED);
+  }
+
+//+------------------------------------------------------------------+
+//| Expert deinitialization function                                 |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+  {
+   // Cleanup code
+  }
+
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+void OnTick()
+  {
+   static double StochMain[], StochSignal[];
+   ArraySetAsSeries(StochMain, true);
+   ArraySetAsSeries(StochSignal, true);
+
+   int StochCount = CopyBuffer(StochHandle, 0, 0, 3, StochMain);
+   int SignalCount = CopyBuffer(StochHandle, 1, 0, 3, StochSignal);
+
+   if(StochCount < 3 || SignalCount < 3)
+     {
+      Print("Error copying Stochastic buffers");
+      return;
+     }
+
+   double currentStoch = StochMain[0];
+
+   // Entry conditions
+   if(currentStoch <= LevelLow && PositionsTotal() < 2)
+     {
+      if(PositionSelect(_Symbol) && PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL)
+        {
+         // Close sell position before opening a buy
+         Trade.PositionClose(_Symbol);
+        }
+      Trade.Buy(1.0, _Symbol, Ask, (Ask + TakeProfit * _Point), 0, "Buy Order");
+     }
+   else if(currentStoch >= LevelHigh && PositionsTotal() < 2)
+     {
+      if(PositionSelect(_Symbol) && PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY)
+        {
+         // Close buy position before opening a sell
+         Trade.PositionClose(_Symbol);
+        }
+      Trade.Sell(1.0, _Symbol, Bid, (Bid - TakeProfit * _Point), 0, "Sell Order");
+     }
+
+   // Trailing stop logic
+   for(int i = 0; i < PositionsTotal(); i++)
+     {
+      if(PositionSelectByIndex(i))
+        {
+         double posPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+         double posStopLoss = PositionGetDouble(POSITION_SL);
+         double newStopLoss = 0;
+
+         if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY)
+           {
+            newStopLoss = Bid - TrailingStop * _Point;
+            if(newStopLoss > posStopLoss)
+              {
+               Trade.PositionModify(PositionGetInteger(POSITION_TICKET), newStopLoss, PositionGetDouble(POSITION_TP));
+              }
+           }
+         else if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL)
+           {
+            newStopLoss = Ask + TrailingStop * _Point;
+            if(newStopLoss < posStopLoss)
+              {
+               Trade.PositionModify(PositionGetInteger(POSITION_TICKET), newStopLoss, PositionGetDouble(POSITION_TP));
+              }
+           }
+        }
+     }
+  }
